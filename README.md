@@ -22,6 +22,7 @@
 - 但该种缓存方式存在一定的问题，例如当可用支付方式发生变化时，缓存不会自动更新，有可能获取到过期的结果。因此需要设计一种缓存更新的方式，确保在支付方式可用性发生变化时，缓存能及时更新：
     - 定时刷新支付方式可用性缓存，例如10s刷新一次。但这种方式还是会有10s的延迟，假设10s内支付方式可用性发生变化，那么将会获取获取到不准确的结果。
     - 因此可以借鉴nacos的服务上下线通知机制，在定时刷新缓存的基础上，增加一种支付服务主动通知不可用的方式。这里可以通过消息队列的方式，消费模式为广播，当支付服务不可用时，发送广播消息，通知所有订阅方，当前服务消费消息，及时更新缓存。
+- 初次获取所有支付方式可用性需要全部调用远程服务，为了防止响应时间过长，也需要设置超时时间，只返回在超时时间内获取到的可用支付服务列表。
 
 ### 扩展
 
@@ -37,6 +38,7 @@
 - [MessageBroker](src%2Fmain%2Fjava%2Fcom%2Fant%2Fmq%2FMessageBroker.java) : 模拟消息订阅发布
 - [PaymentMethodService](src%2Fmain%2Fjava%2Fcom%2Fant%2Fpay%2FPaymentMethodService.java) :
   负责协调支付方式初始化，缓存更新，支付方式可用性获取等流程
+- 可以通过调整 [Constant](src%2Fmain%2Fjava%2Fcom%2Fant%2FConstant.java) 中`REMOTE_TIMEOUT_SECONDS`来控制远程调用的超时时间，超时时间越短，则等待时间越短，响应越快。通过调整`REMOTE_REQUEST_AVG_TIME_MILLIS`值来模拟增大或减小远程调用时间，模拟调用超时的场景。
 
 ### 运行
 
@@ -44,7 +46,6 @@
 - `mvn package`
 - `cd target`
 - `java -jar pay-1.0.jar`
-- 可以通过调整 [Constant](src%2Fmain%2Fjava%2Fcom%2Fant%2FConstant.java) 中远程调用的耗时来模拟超时后，模拟支付服务不可用的场景。
 - 输出如：
 ```
 刷新缓存...

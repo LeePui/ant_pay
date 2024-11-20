@@ -10,6 +10,7 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.*;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * @description: 支付方式查询服务
@@ -24,7 +25,7 @@ public class PaymentMethodService {
     private final ScheduledExecutorService scheduler;
     private final ExecutorService executorService;
     private final CountDownLatch initLatch;
-    private volatile boolean initialized = false;
+    private AtomicBoolean initialized = new AtomicBoolean(false);
 
     public PaymentMethodService(PaymentMethodAvailabilityCache cache, PaymentMethodAvailabilityChecker checker, MessageBroker messageBroker) {
         this.cache = cache;
@@ -53,9 +54,8 @@ public class PaymentMethodService {
      */
     public List<PaymentMethod> getAvailablePaymentMethods() {
         try {
-            if (!initialized && !initLatch.await(Constant.INIT_TIMEOUT_SECONDS, TimeUnit.SECONDS)) {
+            if (!initialized.get() && !initLatch.await(Constant.INIT_TIMEOUT_SECONDS, TimeUnit.SECONDS)) {
                 System.err.println("初始化缓存超时");
-                return Collections.emptyList();
             }
             return cache.getAllPaymentMethods()
                     .stream()
@@ -71,8 +71,8 @@ public class PaymentMethodService {
      * 关闭线程池
      */
     public void shutdown() {
-        scheduler.shutdown();
-        executorService.shutdown();
+        scheduler.shutdownNow();
+        executorService.shutdownNow();
     }
 
     private void subscribeToAvailabilityChanges() {
@@ -100,15 +100,13 @@ public class PaymentMethodService {
                             .forEach(cache::updatePaymentMethod);
 
                     // 所有支付方式更新完成后, 设置初始化完成
-                    if (!initialized) {
-                        initialized = true;
+                    if (initialized.compareAndSet(false, true)) {
                         initLatch.countDown();
                         System.out.println("支付方式可用性缓存初始化完成");
                     }
                 }).exceptionally(throwable -> {
                     System.err.printf("刷新缓存发生异常, %s \n", throwable);
-                    if (!initialized) {
-                        initialized = true;
+                    if (initialized.compareAndSet(false, true)) {
                         initLatch.countDown();
                     }
                     return null;
@@ -129,7 +127,7 @@ public class PaymentMethodService {
                                 .available(available)
                                 .build();
                     } catch (Exception e) {
-                        System.out.printf("检查支付方式可用性调用发生异常, paymentType: %s \n", paymentType);
+                        System.out.printf("检查支付方式可用性调用发生异常, 休眠中断, paymentType: %s \n", paymentType.getDesc());
                         return createUnavailablePaymentMethod(paymentType);
                     }
                 }, executorService)
